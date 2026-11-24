@@ -1588,6 +1588,7 @@ header{background:#111;color:#fff;padding:22px 16px;text-align:center} header h1
 <button onclick="closeSheet()" style="background:#eee;color:#111">Close</button></div></div>
 
 <div class="modal" id="authModal"><div class="box" style="max-width:380px"><h3 style="margin-top:0">Sign in to save</h3><button id="googleBtn">Continue with Google</button><hr><input id="email" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Password"><button id="emailIn">Sign in with Email</button><button id="emailUp" class="light">Create account</button><button id="closeAuth" class="light">Close</button><p id="err" style="color:#c81e1e;font-size:13px"></p></div></div>
+<div class="modal" id="ownerPinModal"><div class="box" style="max-width:380px"><h3 style="margin-top:0">🔒 Owner PIN</h3><p style="color:#666;font-size:13px;margin:0 0 10px">Enter your Owner PIN to open Owner Dashboard.</p><input id="ownerPinInput" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Owner PIN - letters + numbers" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;margin-bottom:10px;font-size:16px"><button onclick="unlockOwner()" style="width:100%;padding:12px;border:none;border-radius:10px;background:#111;color:#fff;font-weight:800;cursor:pointer">Unlock Owner</button><button onclick="closeOwnerPin()" class="light" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:10px;background:#eee;cursor:pointer">Cancel</button><p id="ownerPinErr" style="color:#c81e1e;font-size:13px"></p></div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 function playVideo(src, title){
@@ -1600,31 +1601,48 @@ function watchOnYouTube(title){
   window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(q), '_blank');
 }
 function closeVideo(){ document.getElementById('videoFrame').src=''; document.getElementById('videoModal').classList.remove('open'); }
-function openSheet(song, artist, ms, freeSearch, letter){ document.getElementById('sheetTitle').textContent = song; document.getElementById('msLink').href = ms; document.getElementById('freeSearchLink').href = freeSearch; document.getElementById('letterLink').href = letter; document.getElementById('sheetModal').classList.add('open'); }
+function openSheet(song, artist, ms, freeSearch, letter){
+  function freeUrl(u, q){ if(!u) return q; var l=u.toLowerCase(); if(l.includes('musicnotes')||l.includes('sheetmusicdirect')) return q; return u; }
+  var q1='https://www.google.com/search?q='+encodeURIComponent(song+' '+artist+' free sheet music piano');
+  var q2='https://musescore.com/search?query='+encodeURIComponent(song+' '+artist);
+  var q3='https://www.google.com/search?q='+encodeURIComponent(song+' piano letter notes');
+  document.getElementById('sheetTitle').textContent = song;
+  document.getElementById('msLink').href = freeUrl(ms, q2); document.getElementById('msLink').textContent='MuseScore (Free)';
+  document.getElementById('freeSearchLink').href = freeUrl(freeSearch, q1); document.getElementById('freeSearchLink').textContent='Search Free Sheets';
+  document.getElementById('letterLink').href = freeUrl(letter, q3); document.getElementById('letterLink').textContent='Letter Notes (Free)';
+  document.getElementById('sheetModal').classList.add('open');
+}
 function closeSheet(){ document.getElementById('sheetModal').classList.remove('open'); }
 document.getElementById('videoModal').addEventListener('click', e=>{ if(e.target.id==='videoModal') closeVideo(); });
 document.getElementById('sheetModal').addEventListener('click', e=>{ if(e.target.id==='sheetModal') closeSheet(); });
 const SUPABASE_URL="https://jdallmfoqunzuyovixnz.supabase.co"; const SUPABASE_ANON_KEY="sb_publishable_v8BvBzvFI3Xje8J-actR0A_n43_pFSx";
 let sb=null; if(window.supabase) sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-let user=null, prog={}; function keyFor(c){return c.querySelector('h3').textContent+'|'+c.querySelector('.artist').textContent.split(' • ')[0];}
+let user=null, prog={};
+function getLocalUser(){ try{ return JSON.parse(localStorage.getItem('qs-local-user')||'null'); }catch(e){ return null; } }
+function setLocalUser(u){ if(u) localStorage.setItem('qs-local-user', JSON.stringify(u)); else localStorage.removeItem('qs-local-user'); user=u; }
+// Local sign-in fallback: owner can sign in with owner email + PIN as password, anyone else with any email + password >=6 chars. This works even if Supabase is blocked / redirect not set. function keyFor(c){return c.querySelector('h3').textContent+'|'+c.querySelector('.artist').textContent.split(' • ')[0];}
 function loadLocal(){try{prog=JSON.parse(localStorage.getItem('piano-progress')||'{}');}catch(e){prog={};}}
 function saveLocal(){localStorage.setItem('piano-progress', JSON.stringify(prog));}
-async function load(){ if(sb){ const {data:{user:u}} = await sb.auth.getUser(); user=u; if(u){ const {data} = await sb.from('progress').select('*').eq('user_id', u.id); prog={}; (data||[]).forEach(r=>prog[r.song_key]=r.status); } else loadLocal(); } else loadLocal(); update(); }
-function update(){ document.getElementById('userLabel').textContent = user ? (user.email||'Google user') : 'Guest'; document.getElementById('authBtn').textContent = user ? 'Sign Out' : 'Sign In'; const learned=Object.values(prog).filter(v=>v==='learned').length; document.getElementById('progText').textContent=learned+' / 220 learned'; document.getElementById('progBar').style.width=(learned/220*100)+'%'; document.querySelectorAll('.card').forEach(card=>{ const k=keyFor(card); const st=prog[k]; let box=card.querySelector('.save'); box.innerHTML=''; ['Want','Learning','Learned'].forEach(lab=>{ const v=lab.toLowerCase(); const b=document.createElement('button'); b.textContent=(st===v?'✓ ':'')+lab; if(st===v) b.className='on'; b.onclick=async()=>{ if(!user){document.getElementById('authModal').classList.add('open'); return;} if(st===v) delete prog[k]; else prog[k]=v; if(sb && user){ if(prog[k]) await sb.from('progress').upsert({user_id:user.id, song_key:k, status:prog[k]}); else await sb.from('progress').delete().eq('user_id', user.id).eq('song_key', k); } else saveLocal(); update(); }; box.appendChild(b); }); }); }
+async function load(){ try{ if(sb){ const {data:{user:u}} = await sb.auth.getUser(); if(u){ user=u; const {data} = await sb.from('progress').select('*').eq('user_id', u.id); prog={}; (data||[]).forEach(r=>prog[r.song_key]=r.status); } else { var lu=getLocalUser(); if(lu){ user=lu; loadLocal(); } else loadLocal(); } } else { var lu2=getLocalUser(); if(lu2){ user=lu2; loadLocal(); } else loadLocal(); } }catch(e){ var lu3=getLocalUser(); if(lu3) user=lu3; loadLocal(); } update(); try{ if(typeof render==='function') render(); }catch(e){} }
+function update(){ document.getElementById('userLabel').textContent = user ? (user.email||'Google user') : 'Guest'; document.getElementById('authBtn').textContent = user ? 'Sign Out' : 'Sign In'; const learned=Object.values(prog).filter(v=>v==='learned').length; document.getElementById('progText').textContent=learned+' / 220 learned'; document.getElementById('progBar').style.width=(learned/220*100)+'%'; document.querySelectorAll('.card').forEach(card=>{ const k=keyFor(card); const st=prog[k]; let box=card.querySelector('.save'); box.innerHTML=''; ['Want','Learning','Learned'].forEach(lab=>{ const v=lab.toLowerCase(); const b=document.createElement('button'); b.textContent=(st===v?'✓ ':'')+lab; if(st===v) b.className='on'; b.onclick=async()=>{ if(!user){document.getElementById('authModal').classList.add('open'); return;} if(st===v) delete prog[k]; else prog[k]=v; if(sb && user && !String(user.id||'').startsWith('local-')){ if(prog[k]) await sb.from('progress').upsert({user_id:user.id, song_key:k, status:prog[k]}); else await sb.from('progress').delete().eq('user_id', user.id).eq('song_key', k); } else saveLocal(); update(); }; box.appendChild(b); }); }); }
 let filter='all'; let publicPage=1; const PUBLIC_PER_PAGE=20;
 function getPublicFiltered(){ const q=document.getElementById('q').value.toLowerCase(); return [...document.querySelectorAll('.card')].filter(c=> (filter==='all'||c.dataset.tier===filter)&&c.dataset.search.includes(q)); }
-function render(){ const filtered=getPublicFiltered(); const totalPages=Math.max(1, Math.ceil(filtered.length/PUBLIC_PER_PAGE)); if(publicPage>totalPages) publicPage=totalPages; const start=(publicPage-1)*PUBLIC_PER_PAGE; const pageItems=new Set(filtered.slice(start, start+PUBLIC_PER_PAGE)); document.querySelectorAll('.card').forEach(c=>{ c.style.display=pageItems.has(c)?'block':'none'; }); document.getElementById('count').textContent=filtered.length+' songs • Page '+publicPage+' / '+totalPages; const info=document.getElementById('publicPageInfo'); if(info) info.textContent='Page '+publicPage+' / '+totalPages+' • '+filtered.length+' songs'; const info2=document.getElementById('publicPageInfo2'); if(info2) info2.textContent='Page '+publicPage+' / '+totalPages; const nums=document.getElementById('publicPageNumbers'); if(nums){ nums.innerHTML=''; for(let i=1;i<=totalPages && i<=11;i++){ const b=document.createElement('button'); b.textContent=i; b.onclick=()=>publicGoTo(i); b.style.cssText='padding:8px 12px;border-radius:999px;border:1px solid #ddd;cursor:pointer;font-weight:700;background:'+(i===publicPage?'#111;color:#fff':'#fff'); nums.appendChild(b); } } }
+function render(){ const filtered=getPublicFiltered(); const totalPages=Math.max(1, Math.ceil(filtered.length/PUBLIC_PER_PAGE)); if(publicPage>totalPages) publicPage=totalPages; const start=(publicPage-1)*PUBLIC_PER_PAGE; const pageItems=new Set(filtered.slice(start, start+PUBLIC_PER_PAGE)); document.querySelectorAll('.card').forEach(c=>{ c.style.display=pageItems.has(c)?'block':'none'; }); document.querySelectorAll('.card .play, .featCard .play').forEach(function(b){ var oc=b.getAttribute('onclick')||''; if(oc.includes('listType=search')){ if(!b.textContent.includes('YouTube')) b.textContent=b.textContent.replace('▶ Play','▶ Watch on YouTube').replace('Play','Watch on YouTube'); } }); document.getElementById('count').textContent=filtered.length+' songs • Page '+publicPage+' / '+totalPages; const info=document.getElementById('publicPageInfo'); if(info) info.textContent='Page '+publicPage+' / '+totalPages+' • '+filtered.length+' songs'; const info2=document.getElementById('publicPageInfo2'); if(info2) info2.textContent='Page '+publicPage+' / '+totalPages; const nums=document.getElementById('publicPageNumbers'); if(nums){ nums.innerHTML=''; for(let i=1;i<=totalPages && i<=11;i++){ const b=document.createElement('button'); b.textContent=i; b.onclick=()=>publicGoTo(i); b.style.cssText='padding:8px 12px;border-radius:999px;border:1px solid #ddd;cursor:pointer;font-weight:700;background:'+(i===publicPage?'#111':'#fff')+';color:'+(i===publicPage?'#fff':'#111'); nums.appendChild(b); } } }
 function publicPrev(){ if(publicPage>1){ publicPage--; render(); window.scrollTo({top:0, behavior:'smooth'}); } }
 function publicNext(){ const totalPages=Math.max(1, Math.ceil(getPublicFiltered().length/PUBLIC_PER_PAGE)); if(publicPage<totalPages){ publicPage++; render(); window.scrollTo({top:0, behavior:'smooth'}); } }
 function publicGoTo(p){ publicPage=p; render(); window.scrollTo({top:0, behavior:'smooth'}); }
 document.getElementById('q').addEventListener('input', ()=>{ publicPage=1; render(); });
 document.querySelectorAll('.pills button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.pills button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); filter=b.dataset.f; publicPage=1; render();});
-document.getElementById('authBtn').onclick=async()=>{ if(user && sb){ await sb.auth.signOut(); user=null; loadLocal(); update(); return; } document.getElementById('authModal').classList.add('open'); };
-document.getElementById('closeAuth').onclick=()=>document.getElementById('authModal').classList.remove('open');
-document.getElementById('googleBtn').onclick=async()=>{ document.getElementById('err').textContent='Opening Google...'; try{ const {error} = await sb.auth.signInWithOAuth({provider:'google', options:{redirectTo: window.location.origin + window.location.pathname}}); if(error){ document.getElementById('err').textContent='Google error: '+error.message+' — See fix below.'; } }catch(e){ document.getElementById('err').textContent='Google failed: '+e.message; } };
-document.getElementById('emailIn').onclick=async()=>{ const email=document.getElementById('email').value, password=document.getElementById('pw').value; const {error} = await sb.auth.signInWithPassword({email,password}); if(error) document.getElementById('err').textContent=error.message; else {document.getElementById('authModal').classList.remove('open'); load();} };
-document.getElementById('emailUp').onclick=async()=>{ const email=document.getElementById('email').value, password=document.getElementById('pw').value; const {error} = await sb.auth.signUp({email,password}); if(error) document.getElementById('err').textContent=error.message; else document.getElementById('err').textContent='Check your email to confirm, then sign in.'; };
-load(); loadFeaturedForEveryone(); render(); if(sb) sb.auth.onAuthStateChange(()=>{load(); loadFeaturedForEveryone(); render(); if(window.pendingOwner && user){ window.pendingOwner=false; showOwner(); }});
+document.getElementById('authBtn').onclick=async()=>{ if(user){ try{ if(sb) await sb.auth.signOut(); }catch(e){} setLocalUser(null); ownerUnlocked=false; loadLocal(); update(); return; } document.getElementById('authModal').classList.add('open'); };
+document.getElementById('closeAuth').onclick=()=>document.getElementById('authModal').classList.remove('open'); document.getElementById('ownerPinModal').addEventListener('click', e=>{ if(e.target.id==='ownerPinModal') e.currentTarget.classList.remove('open'); }); document.getElementById('ownerPinInput').addEventListener('keydown', e=>{ if(e.key==='Enter') unlockOwner(); }); document.getElementById('authModal').addEventListener('click', e=>{ if(e.target.id==='authModal') e.currentTarget.classList.remove('open'); });
+document.getElementById('googleBtn').onclick=async()=>{ if(!sb){ document.getElementById('err').textContent='Google is not loading (Supabase blocked). Use Email below instead — owner: use your owner email + PIN as password.'; return; } document.getElementById('err').textContent='Opening Google...'; try{ const {error} = await sb.auth.signInWithOAuth({provider:'google', options:{redirectTo: window.location.origin + window.location.pathname}}); if(error){ document.getElementById('err').textContent='Google error: '+error.message+' — Use Email below instead. Owner: email + PIN as password.'; } }catch(e){ document.getElementById('err').textContent='Google failed: '+e.message+' — Use Email below instead.'; } };
+document.getElementById('emailIn').onclick=async()=>{ const email=(document.getElementById('email').value||'').trim(), password=document.getElementById('pw').value||''; if(!email || !password){ document.getElementById('err').textContent='Enter email + password.'; return; } if(sb){ try{ const {error} = await sb.auth.signInWithPassword({email,password}); if(!error){ document.getElementById('authModal').classList.remove('open'); load(); if(window.pendingOwner){ window.pendingOwner=false; setTimeout(showOwner, 300); } return; } document.getElementById('err').textContent=error.message+' — Trying local sign-in...'; }catch(e){} } // Local fallback (works with no Supabase): owner email + PIN, or any email + 6+ char password
+  var isOwner = email.toLowerCase() === OWNER_EMAIL.toLowerCase();
+  if(isOwner && password !== OWNER_PIN){ document.getElementById('err').textContent='Wrong PIN for owner. Owner password is your PIN.'; return; }
+  if(!isOwner && password.length < 6){ document.getElementById('err').textContent='Password needs 6+ characters.'; return; }
+  setLocalUser({email:email, id:'local-'+email}); document.getElementById('authModal').classList.remove('open'); load(); if(window.pendingOwner){ window.pendingOwner=false; setTimeout(showOwner, 300); } };
+document.getElementById('emailUp').onclick=async()=>{ const email=(document.getElementById('email').value||'').trim(), password=document.getElementById('pw').value||''; if(!email || password.length < 6){ document.getElementById('err').textContent='Enter email + 6+ character password.'; return; } if(sb){ try{ const {error} = await sb.auth.signUp({email,password}); if(!error){ document.getElementById('err').textContent='Check your email to confirm, then sign in.'; return; } document.getElementById('err').textContent=error.message+' — Using local account instead.'; }catch(e){} } setLocalUser({email:email, id:'local-'+email}); document.getElementById('authModal').classList.remove('open'); load(); if(window.pendingOwner){ window.pendingOwner=false; setTimeout(function(){ if(typeof showOwner==='function') showOwner(); }, 300); } };
+try{ render(); }catch(e){} try{ load(); }catch(e){} try{ if(sb) sb.auth.onAuthStateChange(()=>{ try{load();}catch(e){} try{ if(typeof loadFeaturedForEveryone==='function') loadFeaturedForEveryone(); }catch(e){} try{render();}catch(e){} if(window.pendingOwner && user && typeof showOwner==='function'){ window.pendingOwner=false; showOwner(); } }); }catch(e){} if(sb) sb.auth.onAuthStateChange(()=>{try{ render(); }catch(e){} try{ load(); }catch(e){} try{ if(sb) sb.auth.onAuthStateChange(()=>{ try{load();}catch(e){} try{ if(typeof loadFeaturedForEveryone==='function') loadFeaturedForEveryone(); }catch(e){} try{render();}catch(e){} if(window.pendingOwner && user && typeof showOwner==='function'){ window.pendingOwner=false; showOwner(); } }); }catch(e){} if(window.pendingOwner && user){ window.pendingOwner=false; showOwner(); }});
 </script>
 <!-- OWNER - hidden until you tap Owner at bottom -->
 <div id="ownerView" style="display:none;max-width:720px;margin:0 auto;padding:14px 12px 40px">
@@ -1667,40 +1685,39 @@ const OWNER_EMAIL = "cassidy.t.carey@gmail.com";
 const OWNER_PIN = "Ctc121311"; // Owner PIN - only you know this
 let ownerUnlocked = false;
 function showOwner(){
-  // If no owner email set yet, warn but still allow (first-time setup)
-  if(!OWNER_EMAIL){
-    if(!confirm("⚠️ Owner lock is NOT set yet.\n\nRight now ANYONE who signs in can open Owner.\n\nTo lock it: tell me your email and I'll put it in the file, then re-upload.\n\nTap OK to continue to Owner for now, Cancel to stay on public site.")){ return; }
-    openOwnerView(); return;
+  // Owner must be signed in as owner email first
+  if(!user){ window.pendingOwner=true; var am=document.getElementById('authModal'); if(am) am.classList.add('open'); var er=document.getElementById('err'); if(er) er.textContent='Sign in first — owner: use owner email + PIN as password.'; return; }
+  if(!user.email || user.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()){
+    var er2=document.getElementById('err'); var am2=document.getElementById('authModal'); if(am2) am2.classList.add('open'); if(er2) er2.textContent='Not owner. Signed in as '+(user.email||'unknown')+'. Sign out and sign in with the owner email.';
+    return;
   }
-  // Locked: must be signed in as owner email
-  if(!user){ window.pendingOwner=true; document.getElementById('authModal').classList.add('open'); return; }
-  if(!user.email || user.email.toLowerCase() !== OWNER_EMAIL.toLowerCase()){ alert("⛔ Not owner. This account cannot open Owner."); return; }
-  // PIN check
   if(!ownerUnlocked){
-    const pin = prompt("Enter Owner PIN:");
-    if(pin !== OWNER_PIN){ alert("Wrong PIN."); return; }
-    ownerUnlocked = true;
+    var pm=document.getElementById('ownerPinModal'); if(pm){ pm.classList.add('open'); var pi=document.getElementById('ownerPinInput'); if(pi){ pi.value=''; setTimeout(function(){ try{ pi.focus(); }catch(e){} }, 150); } var pe=document.getElementById('ownerPinErr'); if(pe) pe.textContent=''; }
+    return;
   }
   openOwnerView();
 }
+function unlockOwner(){
+  var pi=document.getElementById('ownerPinInput'); var pin=pi?pi.value.trim():'';
+  var pe=document.getElementById('ownerPinErr');
+  if(pin !== OWNER_PIN){ if(pe) pe.textContent='Wrong PIN. Try again.'; return; }
+  ownerUnlocked=true;
+  var pm=document.getElementById('ownerPinModal'); if(pm) pm.classList.remove('open');
+  openOwnerView();
+}
+function closeOwnerPin(){ var pm=document.getElementById('ownerPinModal'); if(pm) pm.classList.remove('open'); }
 function openOwnerView(){
-  document.querySelector('header').style.display='none';
-  document.querySelector('.bar').style.display='none';
-  document.querySelector('.prog').style.display='none';
-  document.querySelector('.wrap').style.display='none';
-  document.getElementById('publicFooter').style.display='none';
-  document.getElementById('ownerView').style.display='block'; document.getElementById('floatOwner').style.display='none'; switchOwnerTab('overview');
-  window.scrollTo(0,0);
-  fillOwnerFeat(); renderOwnerList(); loadOwnerProgress();
+  // Photo version: Owner Dashboard lives IN the normal page, below the pagination - do NOT hide the public page.
+  var ov=document.getElementById('ownerView'); if(ov) ov.style.display='block';
+  try{ switchOwnerTab('overview'); }catch(e){}
+  try{ fillOwnerFeat(); }catch(e){}
+  try{ renderOwnerList(); }catch(e){}
+  try{ loadOwnerProgress(); }catch(e){}
+  setTimeout(function(){ var el=document.getElementById('ownerView'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
 }
 function showPublic(){
-  document.querySelector('header').style.display='';
-  document.querySelector('.bar').style.display='';
-  document.querySelector('.prog').style.display='';
-  document.querySelector('.wrap').style.display='';
-  document.getElementById('publicFooter').style.display='';
-  document.getElementById('ownerView').style.display='none'; document.getElementById('floatOwner').style.display='block';
-  window.scrollTo(0,0);
+  var ov=document.getElementById('ownerView'); if(ov) ov.style.display='none';
+  window.scrollTo({top:0, behavior:'smooth'});
 }
 function fillOwnerFeat(){
   const arr=getFeatured3();
@@ -1763,7 +1780,7 @@ async function loadFeaturedForEveryone(){
   }
 }
 async function loadOwnerProgress(){
-  const el=document.getElementById('oProgress'); if(!sb){ el.textContent='Not connected'; return; }
+  try{ const el=document.getElementById('oProgress'); if(!el) return; if(!sb){ el.textContent='Local mode — showing your saves on this phone.'; try{ var lp=JSON.parse(localStorage.getItem('piano-progress')||'{}'); var lc=Object.values(lp).filter(function(v){return v==='learned';}).length; var ou=document.getElementById('oLearned'); if(ou) ou.textContent=lc; }catch(e){} return; }
   el.textContent='Loading...';
   const {data, error} = await sb.from('progress').select('*').limit(500);
   if(error){ el.textContent='Error: '+error.message; return; }
@@ -1772,8 +1789,7 @@ async function loadOwnerProgress(){
   if(!data||!data.length){ el.innerHTML='No saves yet.'; return; }
   const counts={}; data.forEach(r=>{ counts[r.song_key]=(counts[r.song_key]||0)+1; });
   const top=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  el.innerHTML='<b>Top saved:</b><br>'+top.map(([k,c])=>k.split('|')[0]+' — '+c+' saves').join('<br>');
-}
+  el.innerHTML='<b>Top saved:</b><br>'+top.map(([k,c])=>k.split('|')[0]+' — '+c+' saves').join('<br>'); }catch(e){ var el2=document.getElementById('oProgress'); if(el2) el2.textContent='Could not load owner stats — Featured still works.'; } }
 let ownerPage=1, ownerTier='all'; const OWNER_PER_PAGE=20;
 function switchOwnerTab(tab){
   ['overview','featured','songs','users'].forEach(p=>{ document.getElementById('oPage-'+p).style.display = (p===tab?'block':'none'); });
@@ -1813,7 +1829,8 @@ function renderOwnerList(){
 }
 function quickFeature(name){ const cur=getFeatured3(); document.getElementById('oFeat1').value=name; if(!document.getElementById('oFeat2').value) document.getElementById('oFeat2').value=cur[1]; if(!document.getElementById('oFeat3').value) document.getElementById('oFeat3').value=cur[2]; saveOwnerFeat(); switchOwnerTab('featured'); }
 document.getElementById('oQ').addEventListener('input', ()=>{ ownerPage=1; renderOwnerList(); });
+try{ loadFeaturedForEveryone(); }catch(e){} try{ render(); }catch(e){}
 </script>
 
-<button id="floatOwner" onclick="showOwner()" style="position:fixed;bottom:16px;right:16px;z-index:40;background:#111;color:#fff;border:none;border-radius:999px;padding:12px 16px;font-weight:800;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:pointer">🔒 Owner</button>
+<button id="floatOwner" onclick="try{showOwner()}catch(e){document.getElementById('authModal').classList.add('open');}" style="position:fixed;bottom:16px;right:16px;z-index:40;background:#111;color:#fff;border:none;border-radius:999px;padding:12px 16px;font-weight:800;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:pointer">🔒 Owner</button>
 </body></html>
